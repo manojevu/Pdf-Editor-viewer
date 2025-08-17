@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Editor (Stable V13)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        :root { --primary-color: #3498db; --secondary-color: #2c3e50; --success-color: #27ae60; --danger-color: #e74c3c; --light-gray: #f5f5f5; --border-color: #ddd; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--light-gray); }
+        
+        .header { 
+            background: var(--secondary-color); 
+            color: white; 
+            padding: 0.75rem 2rem; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2); 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header .title-area h1 { font-size: 1.5rem; }
+        .header .title-area p { font-size: 0.9rem; opacity: 0.8; }
+        
+        .header .toolbar-main { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+        .header .btn { background: #4a6582; color: white; border: 1px solid #6c8baf; }
+        .header .btn:hover:not(:disabled) { background: #5e7d9d; }
+        .header .btn.active { background: var(--primary-color); border-color: #5bb1f8; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+        .header .btn.success { background: var(--success-color); border-color: #3bc776; }
+        .header .btn.success:hover:not(:disabled) { background: #219a52; }
+        .header .btn.danger { background: var(--danger-color); border-color: #f16a5a; }
+        .header .btn.danger:hover:not(:disabled) { background: #c0392b; }
+        
+        .main-content {
+            padding: 2rem;
+        }
+
+        .upload-zone { border: 3px dashed var(--primary-color); border-radius: 10px; padding: 3rem; text-align: center; background: white; transition: all 0.3s ease; cursor: pointer; }
+        .upload-zone:hover { border-color: #2980b9; }
+        .upload-zone.dragover { border-color: var(--success-color); }
+        .file-input { display: none; }
+        .editor-area { display: none; }
+        .editor-area.active { display: block; }
+
+        .contextual-toolbar-container {
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: none;
+        }
+        .toolbar-contextual { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-height: 40px; }
+        
+        .btn { background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 0.9rem; transition: background 0.3s ease; }
+        .btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+        
+        .pdf-viewer { 
+            background: white; 
+            border-radius: 8px; 
+            padding: 1.5rem; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+            width: 100%;
+        }
+        .canvas-wrapper { 
+            position: relative; 
+            line-height: 0; 
+            margin: 0 auto;
+            width: fit-content;
+        }
+        #pdfCanvas { border: 1px solid var(--border-color); display: block; max-width: 100%; }
+        #overlayCanvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+
+        .page-controls { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+        .page-nav, .zoom-controls { display: flex; align-items: center; gap: 0.5rem; }
+        .zoom-controls select, .zoom-controls input { padding: 0.4rem; border: 1px solid var(--border-color); border-radius: 4px; }
+        .zoom-controls input { width: 70px; text-align: center; }
+        .btn.zoom-btn { padding: 0.4rem 0.8rem; font-size: 1.2rem; }
+        .page-controls input[type="number"] { width: 60px; text-align: center; padding: 0.4rem; border: 1px solid var(--border-color); border-radius: 4px; }
+        .text-input-overlay { position: absolute; display: none; z-index: 1000; }
+        .status { text-align: center; padding: 1rem; margin-bottom: 1rem; border-radius: 5px; display: none; }
+        .status.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; display: block; }
+        .status.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; display: block; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title-area">
+            <h1>PDF Editor</h1>
+            <p>Local, in-browser editing</p>
+        </div>
+        <div class="toolbar-main">
+            <button class="btn" id="textBtn">Text</button>
+            <button class="btn" id="drawBtn">Draw</button>
+            <button class="btn" id="highlightBtn">Highlight</button>
+            <span style="width: 20px;"></span>
+            <button class="btn" id="undoBtn" disabled>Undo</button>
+            <button class="btn" id="redoBtn" disabled>Redo</button>
+            <button class="btn danger" onclick="deletePage()">Delete Page</button>
+            <button class="btn" onclick="rotatePage()">Rotate</button>
+            <button class="btn success" onclick="downloadPDF()">Download</button>
+            <button class="btn danger" onclick="resetEditor()">Reset</button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="upload-zone" id="uploadZone"><p><strong>Drop your PDF file here</strong><br>or click to browse</p><input type="file" id="fileInput" class="file-input" accept=".pdf"></div>
+        
+        <div class="editor-area" id="editorArea">
+            <div class="status" id="status"></div>
+            <div class="contextual-toolbar-container" id="contextualToolbarWrapper">
+                <div class="toolbar-contextual" id="contextualToolbar"></div>
+            </div>
+            <div class="pdf-viewer">
+                <div class="page-controls">
+                    <div class="page-nav">
+                        <button class="btn" id="prevPageBtn" onclick="previousPage()">Previous</button>
+                        <span>Page <input type="number" id="pageNum" value="1" min="1" onchange="goToPage()"> of <span id="pageCount">1</span></span>
+                        <button class="btn" id="nextPageBtn" onclick="nextPage()">Next</button>
+                    </div>
+                    <div class="zoom-controls">
+                        <button class="btn zoom-btn" onclick="zoomOut()">-</button>
+                        <input type="text" id="zoomPercentage" value="100%" disabled>
+                        <button class="btn zoom-btn" onclick="zoomIn()">+</button>
+                        <select id="fitModeSelect" onchange="handleFitChange()">
+                            <option value="fit-width">Fit Width</option>
+                            <option value="fit-page">Fit Page</option>
+                            <option value="actual">Actual Size</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="canvas-wrapper">
+                    <canvas id="pdfCanvas"></canvas>
+                    <canvas id="overlayCanvas"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="text-input-overlay" id="textInputOverlay"><input type="text" id="textInput" placeholder="Enter text..."><button class="btn" onclick="confirmAddText()">Add</button><button class="btn" onclick="cancelAddText()">Cancel</button></div>
+    </div>
+
+<script>
+    const { PDFDocument, rgb, cmyk, degrees } = PDFLib;
+    let pdfDoc = null, pdfLibDoc = null;
+    let currentPage = 1, totalPages = 0;
+    let scale = 1.0; 
+    let currentFitMode = 'fit-width';
+
+    let pdfCanvas, pdfCtx, overlayCanvas, overlayCtx;
+    let currentMode = 'none', isDrawing = false, startCoords = {}, drawingPoints = [];
+    let toolSettings = { textColor: '#000000', fontSize: 16, drawColor: '#ff0000', lineWidth: 2, highlightColor: '#ffff00' };
+    let historyStack = [], historyIndex = -1;
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        pdfCanvas = document.getElementById('pdfCanvas'); pdfCtx = pdfCanvas.getContext('2d');
+        overlayCanvas = document.getElementById('overlayCanvas'); overlayCtx = overlayCanvas.getContext('2d');
+        const up = document.getElementById('uploadZone'), fIn = document.getElementById('fileInput');
+        up.addEventListener('click', () => fIn.click());
+        up.addEventListener('dragover', e => { e.preventDefault(); up.classList.add('dragover'); });
+        up.addEventListener('dragleave', e => { e.preventDefault(); up.classList.remove('dragover'); });
+        up.addEventListener('drop', e => { e.preventDefault(); up.classList.remove('dragover'); const f = e.dataTransfer.files[0]; if (f) loadPDF(f); });
+        fIn.addEventListener('change', e => { const f = e.target.files[0]; if (f) loadPDF(f); });
+        const vC = document.querySelector('.canvas-wrapper');
+        vC.addEventListener('mousedown', handleMouseDown); vC.addEventListener('mousemove', handleMouseMove);
+        vC.addEventListener('mouseup', handleMouseUp); vC.addEventListener('mouseleave', handleMouseUp);
+        vC.addEventListener('click', handleCanvasClick);
+        document.getElementById('textBtn').addEventListener('click', () => setMode('text'));
+        document.getElementById('drawBtn').addEventListener('click', () => setMode('draw'));
+        document.getElementById('highlightBtn').addEventListener('click', () => setMode('highlight'));
+        document.getElementById('undoBtn').addEventListener('click', undo);
+        document.getElementById('redoBtn').addEventListener('click', redo);
+        window.addEventListener('resize', () => { if(pdfDoc) { applyFitMode() } });
+    });
+
+    async function loadPDF(file) {
+        try {
+            showStatus('Reading file...', 'success');
+            const arrayBuffer = await file.arrayBuffer();
+            pdfLibDoc = await PDFDocument.load(arrayBuffer);
+            await commitState(); // Use the new commit function to set initial state
+        } catch (error) {
+            console.error('CRITICAL FAILURE during PDF load:', error);
+            showStatus(`Error: Could not load this PDF. It may be corrupted or password-protected.`, 'error');
+            resetEditor();
+        }
+    }
+
+    async function renderPage() {
+        if (!pdfDoc) return;
+        isDrawing = false;
+        const page = await pdfDoc.getPage(currentPage);
+        const viewport = page.getViewport({ scale });
+        pdfCanvas.height = viewport.height; pdfCanvas.width = viewport.width;
+        overlayCanvas.height = viewport.height; overlayCanvas.width = viewport.width;
+        await page.render({ canvasContext: pdfCtx, viewport }).promise;
+        document.getElementById('zoomPercentage').value = `${Math.round(scale * 100)}%`;
+    }
+
+    async function applyFitMode() {
+        if (!pdfDoc) return;
+        const page = await pdfDoc.getPage(currentPage);
+        const viewer = document.querySelector('.pdf-viewer');
+        const viewerWidth = viewer.clientWidth - (parseFloat(getComputedStyle(viewer).paddingLeft) * 2);
+        const viewport = page.getViewport({ scale: 1.0 });
+        switch(currentFitMode) {
+            case 'actual': scale = 1.0; break;
+            case 'fit-page':
+                const availableHeight = window.innerHeight - document.querySelector('.header').offsetHeight - 120;
+                scale = Math.min(viewerWidth / viewport.width, availableHeight / viewport.height);
+                break;
+            case 'fit-width': scale = viewerWidth / viewport.width; break;
+        }
+        await renderPage();
+    }
+
+    async function updatePageUI() {
+        if (currentPage > totalPages) currentPage = totalPages;
+        if (currentPage < 1) currentPage = 1;
+        document.getElementById('pageNum').value = currentPage;
+        document.getElementById('pageCount').textContent = totalPages;
+        document.getElementById('prevPageBtn').disabled = currentPage <= 1;
+        document.getElementById('nextPageBtn').disabled = currentPage >= totalPages;
+        await applyFitMode();
+    }
+
+    function handleFitChange() { currentFitMode = document.getElementById('fitModeSelect').value; applyFitMode(); }
+    function zoomIn() { currentFitMode = 'custom'; scale += 0.2; renderPage(); }
+    function zoomOut() { currentFitMode = 'custom'; scale = Math.max(0.1, scale - 0.2); renderPage(); }
+    async function previousPage() { if (currentPage > 1) { currentPage--; await updatePageUI(); } }
+    async function nextPage() { if (currentPage < totalPages) { currentPage++; await updatePageUI(); } }
+    async function goToPage() { const num = parseInt(document.getElementById('pageNum').value); if (num >= 1 && num <= totalPages) { currentPage = num; await updatePageUI(); } }
+    
+    // --- UNDO/REDO LOGIC FIX ---
+    // This function is ONLY for undo/redo. It loads a past state.
+    async function loadState(stateBytes) {
+        pdfLibDoc = await PDFDocument.load(stateBytes);
+        pdfDoc = await pdfjsLib.getDocument({ data: stateBytes.slice(0) }).promise;
+        totalPages = pdfDoc.numPages;
+        await updatePageUI();
+    }
+    
+    // This function commits the CURRENT state to history and updates the view.
+    async function commitState() {
+        const bytes = await pdfLibDoc.save();
+        historyStack = historyStack.slice(0, historyIndex + 1);
+        historyStack.push(bytes);
+        historyIndex++;
+        updateUndoRedoButtons();
+        
+        // Update the viewer to match the committed state
+        pdfDoc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+        totalPages = pdfDoc.numPages;
+
+        if (document.getElementById('editorArea').classList.contains('active')) {
+            await updatePageUI();
+        } else {
+            // This runs only on initial load
+            document.getElementById('uploadZone').style.display = 'none';
+            document.getElementById('editorArea').classList.add('active');
+            await updatePageUI();
+            showStatus('PDF loaded successfully!', 'success');
+        }
+    }
+    
+    async function undo() { if (historyIndex > 1) { historyIndex--; await loadState(historyStack[historyIndex - 1]); updateUndoRedoButtons(); } }
+    async function redo() { if (historyIndex < historyStack.length) { await loadState(historyStack[historyIndex]); historyIndex++; updateUndoRedoButtons(); } }
+    function updateUndoRedoButtons() {
+        // Corrected logic: Can undo if there is more than one state. Can redo if not at the end of the stack.
+        document.getElementById('undoBtn').disabled = historyIndex <= 1;
+        document.getElementById('redoBtn').disabled = historyIndex >= historyStack.length;
+    }
+
+    function setMode(mode) { currentMode = currentMode === mode ? 'none' : mode; updateToolbar(); }
+    function updateToolbar() {
+        document.querySelectorAll('.header .toolbar-main .btn').forEach(b => b.classList.remove('active'));
+        if (currentMode !== 'none') document.getElementById(`${currentMode}Btn`).classList.add('active');
+        const wrapper = document.querySelector('.canvas-wrapper');
+        wrapper.style.cursor = 'default';
+        if (currentMode !== 'none' && currentMode !== 'text') wrapper.style.cursor = 'crosshair';
+        if (currentMode === 'text') wrapper.style.cursor = 'text';
+        const ctb = document.getElementById('contextualToolbar');
+        const ctbWrapper = document.getElementById('contextualToolbarWrapper');
+        let html = '';
+        if (currentMode === 'text') html = `<div>Font Size: <input type="number" value="${toolSettings.fontSize}" onchange="toolSettings.fontSize = this.value;"> Color: <input type="color" value="${toolSettings.textColor}" onchange="toolSettings.textColor = this.value;"></div>`;
+        if (currentMode === 'draw') html = `<div>Line Width: <input type="range" min="1" max="20" value="${toolSettings.lineWidth}" onchange="toolSettings.lineWidth = this.value;"> Color: <input type="color" value="${toolSettings.drawColor}" onchange="toolSettings.drawColor = this.value;"></div>`;
+        if (currentMode === 'highlight') html = `<div>Highlight Color: <input type="color" value="${toolSettings.highlightColor}" onchange="toolSettings.highlightColor = this.value;"></div>`;
+        ctb.innerHTML = html;
+        ctbWrapper.style.display = (html === '') ? 'none' : 'block';
+    }
+
+    function getMouseCoords(e) { const r = e.currentTarget.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+    function handleMouseDown(e) { if (currentMode === 'none' || currentMode === 'text') return; isDrawing = true; startCoords = getMouseCoords(e); drawingPoints = [startCoords]; overlayCanvas.style.pointerEvents = 'auto'; }
+    function handleMouseMove(e) { if (!isDrawing) return; const c = getMouseCoords(e); overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height); if (currentMode === 'draw') { drawingPoints.push(c); overlayCtx.beginPath(); overlayCtx.moveTo(drawingPoints[0].x, drawingPoints[0].y); drawingPoints.forEach(p => overlayCtx.lineTo(p.x, p.y)); overlayCtx.strokeStyle = toolSettings.drawColor; overlayCtx.lineWidth = toolSettings.lineWidth; overlayCtx.stroke(); } else if (currentMode === 'highlight') { const r = { w: c.x - startCoords.x, h: c.y - startCoords.y }; overlayCtx.globalAlpha = 0.3; overlayCtx.fillStyle = toolSettings.highlightColor; overlayCtx.fillRect(startCoords.x, startCoords.y, r.w, r.h); overlayCtx.globalAlpha = 1.0; } }
+    
+    // Action functions are now simpler: just modify and commit.
+    async function handleMouseUp(e) { 
+        if (!isDrawing) return; 
+        isDrawing = false; 
+        overlayCanvas.style.pointerEvents = 'none'; 
+        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height); 
+        const page = pdfLibDoc.getPage(currentPage - 1); 
+        const { height } = page.getSize(); 
+        const toPdfPath = pts => pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x/scale} ${height-(p.y/scale)}`).join(' '); 
+        const toPdfRect = (s, end) => ({ x:Math.min(s.x,end.x)/scale, y:height-Math.max(s.y,end.y)/scale, width:Math.abs(end.x-s.x)/scale, height:Math.abs(end.y-s.y)/scale }); 
+        if (currentMode === 'draw') page.drawSvgPath(toPdfPath(drawingPoints), { borderColor: rgb(...hexToRgb(toolSettings.drawColor)), borderWidth: parseInt(toolSettings.lineWidth) }); 
+        else if (currentMode === 'highlight') page.drawRectangle({ ...toPdfRect(startCoords, getMouseCoords(e)), color: rgb(...hexToRgb(toolSettings.highlightColor)), opacity: 0.3 }); 
+        await commitState(); 
+    }
+    function handleCanvasClick(e) { if (currentMode !== 'text') return; const c = getMouseCoords(e); const o = document.getElementById('textInputOverlay'); o.style.display = 'block'; o.style.left = `${e.pageX}px`; o.style.top = `${e.pageY}px`; o.dataset.x = c.x; o.dataset.y = c.y; document.getElementById('textInput').focus(); }
+    
+    async function confirmAddText() { 
+        const txt = document.getElementById('textInput').value.trim(); 
+        if (!txt) return cancelAddText(); 
+        const {x, y} = document.getElementById('textInputOverlay').dataset; 
+        const page = pdfLibDoc.getPage(currentPage - 1); 
+        page.drawText(txt, { x: parseFloat(x)/scale, y: page.getHeight() - (parseFloat(y)/scale), size: parseInt(toolSettings.fontSize), color: rgb(...hexToRgb(toolSettings.textColor)) }); 
+        await commitState(); 
+        cancelAddText(); 
+    }
+    function cancelAddText() { document.getElementById('textInputOverlay').style.display = 'none'; document.getElementById('textInput').value = ''; }
+    async function deletePage() { if (totalPages <= 1) return; pdfLibDoc.removePage(currentPage - 1); await commitState(); }
+    async function rotatePage() { const p = pdfLibDoc.getPage(currentPage - 1); p.setRotation(degrees((p.getRotation().angle + 90) % 360)); await commitState(); }
+    
+    async function downloadPDF() { const bytes = await pdfLibDoc.save(); const blob = new Blob([bytes], { type: 'application/pdf' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `edited-${Date.now()}.pdf`; link.click(); URL.revokeObjectURL(link.href); }
+    function resetEditor() { document.getElementById('editorArea').classList.remove('active'); document.getElementById('uploadZone').style.display = 'block'; document.getElementById('fileInput').value = ''; pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height); setMode('none'); historyStack = []; historyIndex = -1; hideStatus(); }
+    function hexToRgb(h) { const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h); return r ? [parseInt(r[1], 16)/255, parseInt(r[2], 16)/255, parseInt(r[3], 16)/255] : [0,0,0]; }
+    function showStatus(msg, type) { const el = document.getElementById('status'); el.textContent = msg; el.className = `status ${type}`; if (type === 'success') setTimeout(hideStatus, 4000); }
+    function hideStatus() { document.getElementById('status').className = 'status'; }
+</script>
+</body>
+</html>
